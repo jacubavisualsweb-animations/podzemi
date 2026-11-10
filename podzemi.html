@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Underground Infinite Columns – Segments</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      color: #fff;
+      font-family: system-ui, sans-serif;
+    }
+    #info {
+      position: fixed;
+      top: 8px;
+      left: 10px;
+      font-size: 12px;
+      z-index: 10;
+      opacity: 0.7;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="info">Loading…</div>
+
+  <!-- Three.js r128 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+    const info = document.getElementById('info');
+
+    if (typeof THREE === 'undefined') {
+      info.textContent = 'THREE undefined – zkontroluj internet / CDN.';
+    } else {
+      // === SCÉNA ===
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x050811);
+      scene.fog = new THREE.Fog(0x050811, 40, 260);
+
+      // === KAMERA – letíš uličkou mezi sloupy ===
+      const camera = new THREE.PerspectiveCamera(
+        80,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        500
+      );
+      camera.position.set(0, 5, 6);
+      camera.lookAt(0, 5, -40);
+
+      // === RENDERER ===
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      // === SVĚTLA ===
+      const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+      scene.add(ambient);
+
+      const dirLight = new THREE.DirectionalLight(0x88cfff, 1.4);
+      dirLight.position.set(15, 30, 20);
+      scene.add(dirLight);
+
+      const lowGlow = new THREE.PointLight(0x55aaff, 1.8, 120);
+      lowGlow.position.set(0, 2, -15);
+      scene.add(lowGlow);
+
+      // === TEXTURY ===
+      const texLoader = new THREE.TextureLoader();
+
+      const floorTex = texLoader.load(
+        'https://threejs.org/examples/textures/brick_diffuse.jpg'
+      );
+      floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
+      floorTex.repeat.set(20, 16); // na jeden segment
+      floorTex.anisotropy = 8;
+
+      const ceilingTex = texLoader.load(
+        'https://threejs.org/examples/textures/hardwood2_diffuse.jpg'
+      );
+      ceilingTex.wrapS = ceilingTex.wrapT = THREE.RepeatWrapping;
+      ceilingTex.repeat.set(10, 16);
+      ceilingTex.anisotropy = 8;
+
+      // === PARAMETRY PODZEMÍ ===
+      const colHeight = 12;
+      const floorY = 0;
+      const ceilingY = colHeight;
+
+      const halfCountX = 7;
+      const spacingX = 7;
+
+      const depthPerSegment = 16;   // počet řad sloupů na jeden segment
+      const spacingZ = 8;
+      const segmentLength = depthPerSegment * spacingZ; // délka 1 segmentu (např. 128)
+
+      // === MATERIÁLY SLOUPŮ / BEAMŮ ===
+      const colGeo = new THREE.CylinderGeometry(0.9, 1.2, colHeight, 20);
+      const colMat = new THREE.MeshStandardMaterial({
+        color: 0x4b5670,
+        metalness: 0.6,
+        roughness: 0.35,
+        emissive: 0x101320,
+        emissiveIntensity: 0.4
+      });
+
+      const beamGeo = new THREE.BoxGeometry(260, 0.3, 0.6);
+      const beamMat = new THREE.MeshStandardMaterial({
+        color: 0x3c2b18,
+        metalness: 0.3,
+        roughness: 0.6
+      });
+
+      // === FUNKCE: VYTVOŘENÍ JEDNOHO SEGMENTU CHODBY ===
+      function createSegment(offsetZ) {
+        const group = new THREE.Group();
+        group.position.z = offsetZ;
+
+        // PODLAHA
+        const floorGeo = new THREE.PlaneGeometry(260, segmentLength);
+        const floorMat = new THREE.MeshStandardMaterial({
+          map: floorTex,
+          roughness: 0.9,
+          metalness: 0.1
+        });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = floorY;
+        floor.position.z = -segmentLength / 2;
+        group.add(floor);
+
+        // GRID na zemi
+        const grid = new THREE.GridHelper(
+          260,
+          52,
+          0x333b4f,
+          0x222633
+        );
+        grid.position.y = floorY + 0.01;
+        grid.position.z = -segmentLength / 2;
+        group.add(grid);
+
+        // STROP
+        const ceilingGeo = new THREE.PlaneGeometry(260, segmentLength);
+        const ceilingMat = new THREE.MeshStandardMaterial({
+          map: ceilingTex,
+          metalness: 0.3,
+          roughness: 0.4,
+          side: THREE.DoubleSide
+        });
+        const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+        ceiling.rotation.x = Math.PI / 2;
+        ceiling.position.y = ceilingY;
+        ceiling.position.z = -segmentLength / 2;
+        group.add(ceiling);
+
+        // TRÁMY / PANELY NA STROPU
+        for (let i = 0; i < 4; i++) {
+          const beam = new THREE.Mesh(beamGeo, beamMat);
+          const localZ = - (segmentLength / 4) * (i + 0.5);
+          beam.position.set(0, ceilingY - 0.3, localZ);
+          group.add(beam);
+        }
+
+        // SLOUPY – SPOJUJÍ ZEM + STROP, prostředek ulička (ix === 0 vynechán)
+        for (let ix = -halfCountX; ix <= halfCountX; ix++) {
+          if (ix === 0) continue; // střed volný
+          const x = ix * spacingX;
+          for (let i = 0; i < depthPerSegment; i++) {
+            const localZ = -i * spacingZ; // 0, -8, -16... až -segmentLength
+
+            const col = new THREE.Mesh(colGeo, colMat);
+            col.position.set(x, (floorY + ceilingY) / 2, localZ);
+            group.add(col);
+          }
+        }
+
+        scene.add(group);
+        return group;
+      }
+
+      // === VYTVORÍME 2 SEGMENTY – A A B ===
+      const segments = [];
+      const segmentA = createSegment(0);                  // první před kamerou
+      const segmentB = createSegment(-segmentLength);     // druhý za ním
+      segments.push(segmentA, segmentB);
+
+      // === RYCHLOST PRŮLETU ===
+      const startSpeed = 0.03;
+      const maxSpeed = 0.8;
+      let speed = startSpeed;
+      const accel = (maxSpeed - startSpeed) / (30 * 60); // cca 30 s
+
+      let t = 0;
+
+      // === RESIZE ===
+      window.addEventListener('resize', () => {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        renderer.setSize(w, h);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      });
+
+      function animate() {
+        requestAnimationFrame(animate);
+        t += 0.016;
+
+        // zrychlování
+        if (speed < maxSpeed) {
+          speed += accel;
+        }
+
+        // kamera uprostřed uličky
+        camera.position.set(0, 5, 6);
+        camera.lookAt(0, 5, -40);
+
+        // pulzující modré světlo
+        const pulse = (Math.sin(t * 2.8) + 1) / 2;
+        lowGlow.intensity = 1.0 + pulse * 1.7;
+        lowGlow.position.set(0, 2, -15);
+
+        // POSUN CELÝCH SEGMENTŮ KAMEŘE VSTŘÍC
+        for (const seg of segments) {
+          seg.position.z += speed;
+
+          // když segment proletí kolem kamery → přesunout dozadu
+          if (seg.position.z > segmentLength) {
+            seg.position.z -= segmentLength * 2;
+          }
+        }
+
+        renderer.render(scene, camera);
+
+        info.textContent =
+          'Speed: ' + speed.toFixed(3) +
+          ' | SegmentLength: ' + segmentLength;
+      }
+
+      animate();
+    }
+  </script>
+</body>
+</html>
