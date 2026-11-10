@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#070d12">
+    <link rel="icon" href="data:,">
+    <title>Podzemi — Into the deep</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #070d12;
+        color: #e7f2ef;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+
+      body {
+        background: radial-gradient(ellipse at 50% 45%, #15262b 0%, #091117 48%, #05090d 100%);
+      }
+
+      canvas { display: block; width: 100%; height: 100%; }
+
+      .overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: clamp(24px, 5vw, 72px);
+        pointer-events: none;
+        background: linear-gradient(180deg, rgb(3 9 13 / 62%) 0%, transparent 30%, transparent 68%, rgb(3 9 13 / 76%) 100%);
+      }
+
+      .eyebrow, .label {
+        color: #91aaa8;
+        font-size: 10px;
+        font-weight: 650;
+        letter-spacing: .22em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 13px 0 0;
+        font-size: clamp(36px, 7vw, 82px);
+        font-weight: 500;
+        letter-spacing: -.065em;
+        line-height: .96;
+      }
+
+      .subtitle {
+        margin: 17px 0 0;
+        color: #a8b8b5;
+        font-size: clamp(13px, 1.5vw, 16px);
+        letter-spacing: .02em;
+      }
+
+      .bottom {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .controls { display: flex; flex-wrap: wrap; gap: 22px; }
+      .control { display: flex; align-items: center; gap: 10px; color: #9aadaa; font-size: 12px; }
+      .keys { display: flex; gap: 4px; }
+      kbd {
+        min-width: 24px;
+        padding: 5px 7px;
+        border: 1px solid rgb(187 216 210 / 25%);
+        border-radius: 4px;
+        background: rgb(9 20 24 / 60%);
+        color: #d7e4e0;
+        font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-align: center;
+      }
+
+      .readout { min-width: 126px; text-align: right; }
+      .speed { margin-top: 6px; font-size: 20px; letter-spacing: -.04em; }
+      .speed span { color: #8ca3a0; font-size: 10px; letter-spacing: .12em; }
+      .status { display: flex; justify-content: end; align-items: center; gap: 7px; margin-top: 9px; color: #8ca3a0; font-size: 10px; letter-spacing: .15em; text-transform: uppercase; }
+      .status::before { width: 6px; height: 6px; border-radius: 50%; background: #8ce2c5; box-shadow: 0 0 12px #8ce2c5; content: ""; }
+
+      @media (max-width: 600px) {
+        .overlay { padding: 26px 22px; }
+        .bottom { align-items: start; flex-direction: column; }
+        .controls { gap: 12px 18px; }
+        .readout { align-self: end; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="overlay" aria-label="Underground corridor flight">
+      <header>
+        <div class="eyebrow">Podzemi · subterranean passage</div>
+        <h1>Into the<br>deep.</h1>
+        <p class="subtitle">A quiet flight beneath the surface.</p>
+      </header>
+      <footer class="bottom">
+        <div class="controls" aria-label="Flight controls">
+          <div class="control"><span class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span> steer</div>
+          <div class="control"><span class="keys"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></span> steer</div>
+          <div class="control"><span class="keys"><kbd>SPACE</kbd></span> accelerate</div>
+          <div class="control">Move pointer to look</div>
+        </div>
+        <div class="readout">
+          <div class="label">Forward velocity</div>
+          <div class="speed"><span id="speed">24</span> <span>KM/H</span></div>
+          <div class="status">In flight</div>
+        </div>
+      </footer>
+    </main>
+    <script type="module">
+      import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x071016);
+      scene.fog = new THREE.FogExp2(0x071016, 0.012);
+
+      const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.1, 180);
+      camera.position.set(0, 0, 0);
+      camera.rotation.y = Math.PI;
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.12;
+      document.body.appendChild(renderer.domElement);
+
+      scene.add(new THREE.HemisphereLight(0x9ec2c4, 0x251b16, 1.4));
+      scene.add(new THREE.AmbientLight(0x78918c, 0.45));
+
+      const LOOP_LENGTH = 300;
+      const corridor = new THREE.Group();
+      scene.add(corridor);
+
+      const ringCount = 201;
+      const aroundCount = 40;
+      const vertices = [];
+      const colors = [];
+      const indices = [];
+
+      for (let ring = 0; ring <= ringCount; ring++) {
+        const z = LOOP_LENGTH * ring / ringCount;
+        for (let side = 0; side <= aroundCount; side++) {
+          const angle = side / aroundCount * Math.PI * 2;
+          const grain = Math.sin(angle * 7 + z * 0.11) * 0.38
+            + Math.sin(angle * 13 - z * 0.07) * 0.2
+            + Math.sin(z * 0.17 + angle * 3) * 0.24;
+          const radius = 9.3 + grain;
+          vertices.push(Math.cos(angle) * radius, Math.sin(angle) * radius, z);
+
+          const variation = 0.72 + (Math.sin(z * 0.13 + angle * 11) + 1) * 0.12;
+          const stone = new THREE.Color(0x46534d);
+          const mineral = new THREE.Color(0x61746a);
+          stone.lerp(mineral, Math.max(0, Math.min(1, variation)));
+          colors.push(stone.r, stone.g, stone.b);
+        }
+      }
+
+      for (let ring = 0; ring < ringCount; ring++) {
+        for (let side = 0; side < aroundCount; side++) {
+          const a = ring * (aroundCount + 1) + side;
+          const b = a + aroundCount + 1;
+          indices.push(a, b, a + 1, b, b + 1, a + 1);
+        }
+      }
+
+      const tunnelGeometry = new THREE.BufferGeometry();
+      tunnelGeometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+      tunnelGeometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+      tunnelGeometry.setIndex(indices);
+      tunnelGeometry.computeVertexNormals();
+
+      const tunnelMaterial = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.94,
+        metalness: 0.02,
+        side: THREE.FrontSide,
+      });
+
+      const tunnel = new THREE.Mesh(tunnelGeometry, tunnelMaterial);
+      tunnel.position.z = -20;
+      corridor.add(tunnel);
+      const secondTunnel = tunnel.clone();
+      secondTunnel.position.z = LOOP_LENGTH - 20;
+      corridor.add(secondTunnel);
+
+      let randomState = 941;
+      const random = () => {
+        randomState = (randomState * 16807) % 2147483647;
+        return (randomState - 1) / 2147483646;
+      };
+
+      const details = new THREE.Group();
+      corridor.add(details);
+      const crystalMaterials = [
+        new THREE.MeshStandardMaterial({ color: 0x71d2c1, emissive: 0x1a665b, emissiveIntensity: 1.3, roughness: 0.3, metalness: 0.15 }),
+        new THREE.MeshStandardMaterial({ color: 0xe7a66e, emissive: 0x6a2d10, emissiveIntensity: 1.1, roughness: 0.35, metalness: 0.1 }),
+        new THREE.MeshStandardMaterial({ color: 0x8db6de, emissive: 0x254872, emissiveIntensity: 1.2, roughness: 0.28, metalness: 0.12 }),
+      ];
+      const crystalGeometry = new THREE.OctahedronGeometry(1, 0);
+
+      for (let i = 0; i < 54; i++) {
+        const z = 5 + i * (LOOP_LENGTH - 10) / 54;
+        const angle = random() * Math.PI * 2;
+        const radius = 7.8 + random() * 0.5;
+        const size = 0.22 + random() * 0.7;
+        const crystal = new THREE.Mesh(crystalGeometry, crystalMaterials[i % crystalMaterials.length]);
+        crystal.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius, z);
+        crystal.scale.set(size * 0.6, size * 0.6, size * (1.3 + random()));
+        crystal.lookAt(0, 0, z);
+        details.add(crystal);
+      }
+
+      const lampMaterial = new THREE.MeshBasicMaterial({ color: 0x7dcabb, transparent: true, opacity: 0.24 });
+      const lampGeometry = new THREE.TorusGeometry(8.7, 0.035, 5, 64);
+      for (let i = 0; i < 10; i++) {
+        const z = 12 + i * 28;
+        const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
+        lamp.position.z = z;
+        details.add(lamp);
+        const light = new THREE.PointLight(0x73cbbb, 2.2, 24, 2);
+        light.position.set(Math.sin(i * 2.1) * 1.8, Math.cos(i * 1.7) * 1.6, z);
+        details.add(light);
+      }
+
+      const detailCopy = details.clone();
+      detailCopy.position.z = LOOP_LENGTH;
+      corridor.add(detailCopy);
+
+      const particleCount = 480;
+      const particlePositions = new Float32Array(particleCount * 3);
+      for (let i = 0; i < particleCount; i++) {
+        const angle = random() * Math.PI * 2;
+        const radius = random() * 7.2;
+        particlePositions[i * 3] = Math.cos(angle) * radius;
+        particlePositions[i * 3 + 1] = Math.sin(angle) * radius;
+        particlePositions[i * 3 + 2] = random() * LOOP_LENGTH;
+      }
+      const particleGeometry = new THREE.BufferGeometry();
+      particleGeometry.setAttribute("position", new THREE.Float32BufferAttribute(particlePositions, 3));
+      const particles = new THREE.Points(
+        particleGeometry,
+        new THREE.PointsMaterial({ color: 0xb5d9ce, size: 0.055, transparent: true, opacity: 0.48, sizeAttenuation: true }),
+      );
+      corridor.add(particles);
+      const particleCopy = particles.clone();
+      particleCopy.position.z = LOOP_LENGTH;
+      corridor.add(particleCopy);
+
+      const pressed = new Set();
+      const pointer = { x: 0, y: 0 };
+      let positionX = 0;
+      let positionY = 0;
+      let flightZ = 0;
+      const speedReadout = document.querySelector("#speed");
+
+      addEventListener("keydown", (event) => {
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+        pressed.add(event.key.toLowerCase());
+      });
+      addEventListener("keyup", (event) => pressed.delete(event.key.toLowerCase()));
+      addEventListener("blur", () => pressed.clear());
+      addEventListener("pointermove", (event) => {
+        pointer.x = (event.clientX / innerWidth - 0.5) * 2;
+        pointer.y = (event.clientY / innerHeight - 0.5) * 2;
+      });
+      addEventListener("resize", () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+
+      const clock = new THREE.Clock();
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = Math.min(clock.getDelta(), 0.05);
+        const boost = pressed.has(" ") ? 1 : 0;
+        const speed = 24 + boost * 22;
+        const left = pressed.has("a") || pressed.has("arrowleft");
+        const right = pressed.has("d") || pressed.has("arrowright");
+        const up = pressed.has("w") || pressed.has("arrowup");
+        const down = pressed.has("s") || pressed.has("arrowdown");
+        const targetX = THREE.MathUtils.clamp((right - left) * 3.4 + pointer.x * 2.6, -5, 5);
+        const targetY = THREE.MathUtils.clamp((down - up) * 2.8 - pointer.y * 1.8, -4.4, 4.4);
+        positionX = THREE.MathUtils.damp(positionX, targetX, 2.5, delta);
+        positionY = THREE.MathUtils.damp(positionY, targetY, 2.5, delta);
+        flightZ += speed * delta * 0.12;
+        if (flightZ >= LOOP_LENGTH) flightZ -= LOOP_LENGTH;
+
+        camera.position.set(positionX, positionY, flightZ);
+        camera.lookAt(positionX * 0.68, positionY * 0.68, flightZ + 18);
+        camera.rotateZ(-positionX * 0.018);
+        speedReadout.textContent = Math.round(speed);
+        renderer.render(scene, camera);
+      }
+
+      animate();
+    </script>
+  </body>
+</html>
